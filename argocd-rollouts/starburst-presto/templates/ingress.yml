@@ -16,7 +16,7 @@ spec:
     role: coordinator
   source:
     path: starburst-presto
-    repoURL: https://gitlab.com/nwm-team/argocd-rollouts.git
+    repoURL: https://github.com/Lokeshyogi/argocd-deploy.git
     targetRevision: HEAD
   destination:
     namespace: production
