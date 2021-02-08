@@ -26,8 +26,9 @@ spec:
             port:
               number: 8080
           weight: 50
+   project: production
   source:
-    path: istioHelm
+    path: argocd-rollouts/istioHelm/
     repoURL: https://github.com/Lokeshyogi/argocd-deploy.git
     targetRevision: HEAD
   destination:
