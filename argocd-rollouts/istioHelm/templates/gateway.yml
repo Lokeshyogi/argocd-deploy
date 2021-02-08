@@ -2,6 +2,9 @@ apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
   name: presto-gateway
+  namespace: argocd-ns
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   selector:
     istio: ingressgateway # use istio default controller
