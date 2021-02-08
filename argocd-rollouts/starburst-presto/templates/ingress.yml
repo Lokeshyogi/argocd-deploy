@@ -1,21 +1,14 @@
-apiVersion: v1 
-kind: Service 
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
-  name: presto-ingress
-  {{- if .Values.ingress.annotations }}
-  {{- with .Values.ingress.annotations }}
-  annotations:
-  {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- end }}
+  name: devops-toolkit
+  namespace: argocd-ns
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  type: {{.Values.ingress.type}}
-  ports:
-    - port: {{.Values.ingress.port}}
-  selector:
-    role: coordinator
+  project: production
   source:
-    path: starburst-presto
+    path: argocd-rollouts/starburst-presto/
     repoURL: https://github.com/Lokeshyogi/argocd-deploy.git
     targetRevision: HEAD
   destination:
@@ -25,3 +18,4 @@ spec:
     automated:
       selfHeal: true
       prune: true
+
