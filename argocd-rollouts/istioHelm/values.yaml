@@ -1,0 +1,10 @@
+gateway:
+  protocol: HTTP
+  hosts:
+    - "*"
+  port : 80
+
+virtualService:
+  port: 8080
+  hosts:
+    - "*"

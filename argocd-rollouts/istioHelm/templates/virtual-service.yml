@@ -1,0 +1,39 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: presto-vs
+spec:
+  {{- if .Values.virtualService.hosts }}
+  {{- with .Values.virtualService.hosts }}
+  hosts:
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  gateways:
+    - presto-gateway
+  http:
+    - match:
+        - uri:
+            regex: /.*
+      route:
+        - destination:
+            host: presto-ingress.argo-presto-vikas.svc.cluster.local
+            port:
+              number: 8080
+          weight: 50
+        - destination:
+            host: presto-ingress.argo-presto-prab.svc.cluster.local
+            port:
+              number: 8080
+          weight: 50
+  source:
+    path: istioHelm
+    repoURL: https://gitlab.com/nwm-team/argocd-rollouts.git
+    targetRevision: HEAD
+  destination:
+    namespace: production
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
