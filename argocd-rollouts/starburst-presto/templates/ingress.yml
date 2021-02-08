@@ -1,0 +1,27 @@
+apiVersion: v1 
+kind: Service 
+metadata:
+  name: presto-ingress
+  {{- if .Values.ingress.annotations }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+spec:
+  type: {{.Values.ingress.type}}
+  ports:
+    - port: {{.Values.ingress.port}}
+  selector:
+    role: coordinator
+  source:
+    path: starburst-presto
+    repoURL: https://gitlab.com/nwm-team/argocd-rollouts.git
+    targetRevision: HEAD
+  destination:
+    namespace: production
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

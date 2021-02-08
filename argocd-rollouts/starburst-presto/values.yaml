@@ -1,0 +1,647 @@
+#-----------------------------------------------
+#Provides ability to create ingress for the deployment
+
+ingress:
+  annotations :
+    # service.beta.kubernetes.io/aws-load-balancer-internal: 0.0.0.0/0
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+#    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+  type : LoadBalancer
+  port : 8080
+
+  # ------------------------------------------------------------------------------
+  # Starburst Platform
+  # ------------------------------------------------------------------------------
+  # External secrets references in Presto properties.
+  #
+  #   Some Presto properties require pointing to external files or
+  #   environment variables, such as CA certificates or passwords.
+  #   You can use special notation to reference K8S secrets containing
+  #   files or text values.
+  #
+  #   - For files -> secretRef:<secret_name>:<secret_key>
+  #
+  #     Example:
+  #
+  #     Standard Presto configuration in password-authenticator.properties:
+  #       ldap.ssl-trust-certificate=etc/ca.crt
+  #
+  #     Equivalent Helm secretRef configuration:
+  #       coordinator:
+  #         etcFiles:
+  #           properties:
+  #             password-authenticator.properties: |
+  #               ldap.ssl-trust-certificate=secretRef:example_secret_name:ca.crt
+  #
+  #     This mounts key "ca.crt" from K8S secret named "example_secret_name"
+  #     in container's file system as file ca.crt. Presto's property value in
+  #     generated configuration file is replaced by full path to ca.crt file:
+  #       ldap.ssl-trust-certificate=/mnt/secretRef/example_secret_name/ca.crt
+  #
+  #   - For environment variables -> secretEnv:<secret_name>[:<secret_key>]
+  #
+  #     Example:
+  #     Standard Presto configuration in config.properties:
+  #       internal-communication.shared-secret=KAGS&EFTADSFGSFE
+  #
+  #     Equivalent Helm secretEnv configuration:
+  #       coordinator:
+  #         etcFiles:
+  #           properties:
+  #             config.properties: |
+  #               internal-communication.shared-secret=secretEnv:shared-secret:secret_key
+  #
+  #     This mounts K8S secret named "shared-secret" in container and exposes value
+  #     of key "secret-key" as environment variable named "secret-key". Presto's
+  #     property value in generated configuration file is replaced by Presto environment
+  #     variables resolution syntax:
+  #       internal-communication.shared-secret=${ENV:secret_key}
+  #
+  #     For secretEnv secretKey is optional. If you don't provide it, it's assumed that
+  #     key name is equal to secret name. Example K8S secret should look like:
+  #       apiVersion: v1
+  #       kind: Secret
+  #       metadata:
+  #         name: <secret_name>
+  #       type: Opaque
+  #       data:
+  #         <secret_name>: <secret_value_b64_enc>
+  #
+  #     When shorter notation is used secretEnv:<secret_name> it's assumed that vault secret
+  #     contains single value as it's secret body. In such case secret key is generated
+  #     basing on secret name. It's uppercase with all '-','.' replaced with '_'.
+  #
+  #   Notes:
+  #     - Template validates if provided secret names, key names and environment variables
+  #       names are correct.
+  #     - Every usage of secretRef or secretEnv in values.yaml adds volume for the
+  #       referenced secret, even if it's not used due to template logic. For example,
+  #       if you use secretRef in ldap.ssl-trust-certificate property, referenced secret
+  #       is mounted even if ldap authentication is disabled.
+  #
+  # ------------------------------------------------------------------------------
+  # ------------------------------------------------------------------------------
+
+  # ------------------------------------------------------------------------------
+  # Image
+  # ------------------------------------------------------------------------------
+starburst-presto :
+  image:
+    repository: "harbor.starburstdata.net/starburstdata/presto"
+    tag: "348-e"
+    pullPolicy: "Always"
+
+  initImage:
+    repository: "harbor.starburstdata.net/starburstdata/presto-init"
+    tag: "348.0.0"
+    pullPolicy: "Always"
+
+  ## registryCredentials set access to container images
+  registryCredentials:
+    enabled: true
+    # Replace this with Docker Registry that you use
+    registry: harbor.starburstdata.net/starburstdata
+    username: starburstsa
+    password: 9dc579758f9a16728d6F
+
+  # ------------------------------------------------------------------------------
+  # Internal communication
+  # ------------------------------------------------------------------------------
+
+  # Shared secret for internal communication. Set it to long and unique value.
+  # If not set, node.environment value is used from node.properties file.
+  sharedSecret:
+
+  # Environment id; used for generating internal communication token if sharedSecret
+  #  is not provided. If empty, default value is generated based on Helm release name.
+  environment:
+
+  # ------------------------------------------------------------------------------
+  # Coordinator service
+  # Modelled after https://github.com/goharbor/harbor-helm/blob/55598b1f1ccba2bc1c12e94a2622840cae148eb8/values.yaml#L1
+  # ------------------------------------------------------------------------------
+
+  expose:
+    # one of: nodePort, clusterIp, loadBalancer, ingress
+    type: "clusterIp"
+    clusterIp:
+      name: "presto"
+      ports:
+        http:
+          port: 8080
+    nodePort:
+      name: "presto"
+      ports:
+        http:
+          port: 8080
+          nodePort: 30080
+    loadBalancer:
+      name: "presto"
+      # IP: ""
+      ports:
+        http:
+          port: 8080
+      annotations: {
+        # service.beta.kubernetes.io/aws-load-balancer-internal: 0.0.0.0/0
+        # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+        # service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+      }
+      sourceRanges: []
+    ingress:
+      serviceName: "presto"
+      servicePort: 8080
+      tls:
+        enabled: true
+        secretName:
+      host:
+      path: "/"
+      annotations: {
+
+      }
+
+  # ------------------------------------------------------------------------------
+  # Coordinator
+  # ------------------------------------------------------------------------------
+
+  coordinator:
+    etcFiles:
+      other:
+      jvm.config: |
+        -server
+        -XX:-UseBiasedLocking
+        -XX:+UseG1GC
+        -XX:G1HeapRegionSize=32M
+        -XX:+ExplicitGCInvokesConcurrent
+        -XX:+ExitOnOutOfMemoryError
+        -XX:+UseGCOverheadLimit
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:ReservedCodeCacheSize=512M
+        -Djdk.nio.maxCachedBufferSize=2000000
+        -Djdk.attach.allowAttachSelf=true
+      # Properties section allows to define any Presto properties files below
+      # as an yaml inline string:
+      # properties:
+      #   config.properties: <<defaults provided>>
+      #   node.properties: <<defaults provided>>
+      #   log.properties: <<defaults provided>>
+      #   password-authenticator.properties: <<optional>>
+      #   <<any_other_optional_properties_files>>
+      #
+      properties:
+        config.properties: |
+          coordinator=true
+          node-scheduler.include-coordinator=false
+          http-server.http.port=8080
+          discovery-server.enabled=true
+          discovery.uri=http://localhost:8080
+        node.properties: |
+          node.environment={{ include "presto.environment" . }}
+          node.data-dir=/data/presto
+          plugin.dir=/usr/lib/presto/plugin
+          node.server-log-file=/var/log/presto/server.log
+          node.launcher-log-file=/var/log/presto/launcher.log
+        log.properties: |
+          # Enable verbose logging from Presto
+          # io.prestosql=DEBUG
+        # Below configuration provides FILE based authentication using htpasswd style
+        # user database. This database may be provided:
+        # - with K8s secret - using secretRef
+        # - with Helm .Values.userDatabase - you can define static list of users in this values.yaml
+        # e.g for LDAP
+        # password-authenticator.properties: |
+        #   password-authenticator.name=ldap
+        #   ldap.url=ldaps://ldap-server:636
+        #   ldap.user-bind-pattern=uid=${USER},OU=America,DC=corp,DC=example,DC=com
+        #   ldap.ssl-trust-certificate=secretRef:ldap-ca:ca.crt
+        # password-authenticator.properties: |
+        #   password-authenticator.name=file
+        #   file.password-file=/usr/lib/presto/etc/auth/password.db
+        # access-control.properties: |
+        #   access-control.name=file
+        #   security.config-file=secretRef:file-access-control:rules.json
+        #   security.refresh-period=1s
+      # Other files that needs to be placed in Presto etc directory
+      # e.g.
+      # other:
+      #   resource-groups.json: |
+      #     {
+      #       <<json_here>
+      #     }
+      #   kafka/tpch.customer.json: |
+      #     {
+      #       <<json_here>
+      #     }
+      #
+
+    resources:
+      requests:
+        memory: "6Gi"
+        cpu: 1
+      limits:
+        memory: "6Gi"
+        cpu: 1
+    # size of container memory headroom, needs to be less than resource allocation limit for memory
+    nodeMemoryHeadroom: "1Gi"
+    # Percentage of container memory reduced with headroom assigned to Java heap, must be less than 100
+    heapSizePercentage: 90
+    # Headroom of Java heap memory not tracked by Presto during query execution, must be less than 100
+    heapHeadroomPercentage: 30
+    additionalProperties: ""
+    # Allows to propagate environment variables from different sources like accordingly to K8S schema
+    # https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.19/#envfromsource-v1-core
+    # e.g.
+    # envFrom:
+    #   - secretRef:
+    #       name: <<secret_name>>
+    envFrom: []
+    nodeSelector:
+      nodegroup : two
+    affinity: {}
+    tolerations: []
+    # Priority class for coordinator pod
+    # https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/
+    priorityClassName:
+
+  # ------------------------------------------------------------------------------
+  # Workers
+  # ------------------------------------------------------------------------------
+
+  worker:
+    etcFiles:
+      jvm.config: |
+        -server
+        -XX:-UseBiasedLocking
+        -XX:+UseG1GC
+        -XX:G1HeapRegionSize=32M
+        -XX:+ExplicitGCInvokesConcurrent
+        -XX:+ExitOnOutOfMemoryError
+        -XX:+UseGCOverheadLimit
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:ReservedCodeCacheSize=512M
+        -Djdk.nio.maxCachedBufferSize=2000000
+        -Djdk.attach.allowAttachSelf=true
+      # Properties section allows to define any Presto properties files below
+      # as an yaml inline string:
+      # properties:
+      #   config.properties: <<required>>
+      #   node.properties: <<required>>
+      #   log.properties: <<required>>
+      #   <<any_other_optional_properties_files>>
+      #
+      properties:
+        config.properties: |
+          coordinator=false
+          http-server.http.port=8080
+          discovery.uri=http://{{ include "presto.service.name" . }}:8080
+        node.properties: |
+          node.environment={{ include "presto.environment" . }}
+          node.data-dir=/data/presto
+          plugin.dir=/usr/lib/presto/plugin
+          node.server-log-file=/var/log/presto/server.log
+          node.launcher-log-file=/var/log/presto/launcher.log
+        log.properties: |
+          # Enable verbose logging from Presto
+          #io.prestosql=DEBUG
+        # access-control.properties: |
+        #   access-control.name=file
+        #   security.config-file=secretRef:file-access-control:rules.json
+
+      # Other files that needs to be places in Presto etc directory
+      # e.g.
+      # other:
+      #   resource-groups.json: |
+      #     {
+      #       <<json_here>
+      #     }
+      #   kafka/tpch.customer.json: |
+      #     {
+      #       <<json_here>
+      #     }
+      #
+      other: {}
+    count: 2
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 100
+      targetCPUUtilizationPercentage: 80
+    deploymentTerminationGracePeriodSeconds: 300 # 5 minutes
+    prestoWorkerShutdownGracePeriodSeconds: 120 # 2 minutes
+    resources:
+      requests:
+        memory: "6Gi"
+        cpu: 1
+      limits:
+        memory: "6Gi"
+        cpu: 1
+    # size of container memory headroom, needs to be less that resource allocation limit for memory
+    nodeMemoryHeadroom: "1Gi"
+    # Percentage of container memory reduced with headroom assigned to Java heap, must be less than 100
+    heapSizePercentage: 90
+    # Headroom of Java heap memory not tracked by Presto during query execution, must be less than 100
+    heapHeadroomPercentage: 30
+    additionalProperties: ""
+    # Allows to propagate environment variables from different sources like accordingly to K8S schema
+    # https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.19/#envfromsource-v1-core
+    # e.g.
+    # envFrom:
+    #   - secretRef:
+    #       name: <<secret_name>>
+    envFrom: []
+    nodeSelector:
+      nodegroup : three
+    affinity: {}
+    tolerations: []
+    # Priority class for worker pods
+    # https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/
+    priorityClassName:
+
+  # ------------------------------------------------------------------------------
+  # Common Coordinator/Worker Settings
+  # ------------------------------------------------------------------------------
+
+  # External Secrets
+  #
+  # It allows to automatically mount external secrets (for example from AWS Secrets Manager)
+  # which are referenced by secretRef or secretEnv notation.
+  #
+  # Configuration:
+  #
+  # externalSecrets:
+  #   enabled: true # disabled by default
+  #   type: goDaddy # type of External Secret Provider, currently only goDaddy is supported
+  #   secretPrefix: <<secret_name_prefix>> # prefix of all secrets that needs to be mapped to external secret
+  #   goDaddy:
+  #     # section for GoDaddy External Secrets specific configuration
+  #     backendType: <<string>> - ref to. https://github.com/godaddy/kubernetes-external-secrets
+  #     ...
+  #
+  # Chart scans for all secretRef or secretEnv references in values.yaml which starts with
+  # configured secretPrefix. For each secret found, it generates ExternalSecret K8s manifest.
+  # Note that:
+  # - Selected External Secrets provider needs to be deployed and configured separately.
+  # - Names of secrets in external storage must match names of K8S secrets we reference to.
+  # - For each external secret single K8s secret will be created.
+  #
+  # Example:
+  # - Create AWS Secrets Manager secret:
+  #   aws secretsmanager create-secret --name external-presto-http-server-port --secret-string 8888
+  #
+  # - Reference it from config.properties:
+  #   coordinator:
+  #     etcFiles:
+  #       config.properties: |
+  #           http-server.http.port=secretEnv:external-presto-http-server-port
+  #
+  # - Configure External Secrets:
+  #   externalSecrets:
+  #      enabled: true
+  #      type: goDaddy
+  #      secretPrefix: external0
+  #    goDaddy:
+  #      backendType: secretsManager
+  #
+  # Effect:
+  # - External Secret Manifest is created:
+  #   apiVersion: kubernetes-client.io/v1
+  #   kind: ExternalSecret
+  #   metadata:
+  #     name: external-presto-http-server-port
+  #   spec:
+  #      backendType: secretsManager
+  #      data:
+  #        - key: external-presto-http-server-port
+  #          name: external_presto_http_server_port
+  #
+  # - External Secrets provider fetches secret from AWS and creates K8s Secret:
+  #   apiVersion: v1
+  #   kind: Secret
+  #   metadata:
+  #     name: external-presto-http-server-port
+  #   type: Opaque
+  #   data:
+  #     external_presto_http_server_port: 8888
+  #
+  # - Above secret is bind to container as external_presto_http_server_port environment
+  #   variable.
+  #
+  # - Presto config.properties is resolved to:
+  #   http-server.http.port=${ENV:external_presto_http_server_port}
+  #
+  externalSecrets:
+    enabled: false
+    type: goDaddy
+    secretPrefix: external0
+    goDaddy:
+      backendType: secretsManager
+
+  # User database
+  # htpasswd database generator
+  # Created in under /usr/lib/presto/etc/auth/{{.Values.userDatabase.name}}
+  # This feature may be used to statically deliver user credentials to
+  # Presto file based authentication defined via:
+  #   .Values.coordinator.'password-authenticator.properties'
+  userDatabase:
+    name: password.db
+    users:
+      - username: admin
+        password: 46991b33f7a75ff79213c0dc0e610610
+
+  # Make security context configurable for non-root containers
+  securityContext:
+
+  # ------------------------------------------------------------------------------
+  # initFile - optional startup script, called with single parameter "coordinator"
+  # or "worker" if not set default container command is called
+  # - initFile - yaml inline string with init script content started as /bin/bash <<init_file>>
+  # - extraArguments - additional arguments passed to initFile script after ${1}
+  #                    which corresponds to coordinator or worker
+  #
+  # The init script content must end with a command to launch Presto.
+  # For Presto versions < 345-e use the launcher "exec /usr/lib/presto/bin/launcher run"
+  # For Presto versions > 345-e to enable graceful shutdown of Presto workers use
+  # "exec /usr/lib/presto/bin/run-presto"
+  #
+  # e.g.
+  # initFile: |
+  #   #!/bin/bash
+  #   echo "Custom init for $1 $2"
+  #   exec /usr/lib/presto/bin/run-presto
+  # extraArguments:
+  #   - TEST_ARG
+  #
+  # Will output for Coordinator:
+  # Custom init for coordinator TEST_ARG
+  # <<presto_logs>>
+  # And for Worker:
+  # Custom init for worker TEST_ARG
+  # <<presto_logs>>
+  # ------------------------------------------------------------------------------
+  initFile: |
+    #!/bin/bash
+    exec /usr/lib/presto/bin/run-presto
+  extraArguments: []
+
+  # Below secret will be mounted in /extra-secret/ within containers
+  extraSecret:
+    # Replace this with secret name that should be used from namespace you are deploying to
+    name:
+    # Optionally 'file' may be provided which will be deployed as secret with given 'name' in used namespace.
+    file:
+
+  readinessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - curl -s http://localhost:8080/v1/info | grep \"starting\":false
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 30
+
+  livenessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - curl -s http://localhost:8080/v1/info | grep \"starting\":false
+    initialDelaySeconds: 300
+    periodSeconds: 300
+    timeoutSeconds: 30
+    failureThreshold: 1
+
+  # ------------------------------------------------------------------------------
+  # Presto Query memory usage control
+  # - maxConcurrentQueries - Maximum queries executed in parallel on single node
+  # ------------------------------------------------------------------------------
+
+  query:
+    maxConcurrentQueries: 3
+
+  # ------------------------------------------------------------------------------
+  # Presto Disk Spilling
+  # Spilling uses internal Node storage(HDD). Mounted within Pod and Container.
+  # ------------------------------------------------------------------------------
+
+  spilling:
+    enabled: false
+    volume:
+      emptyDir: {}
+
+  # ------------------------------------------------------------------------------
+  # Presto Caching
+  # !!! Warning !!!
+  # Currently caching only works with Hive Connector. Future releases will change it.
+  # - Enabling caching here will enable it for all Hive connectors.
+  # - To enable caching only for specific connector, configure it via catalogs
+  #   and additionalVolumes. In such case this feature needs to be disabled.
+  # ------------------------------------------------------------------------------
+
+  cache:
+    enabled: false
+    diskUsagePercentage: 80
+    ttl: "7d"
+    volume:
+      emptyDir: {}
+
+  # ------------------------------------------------------------------------------
+  # Presto Catalogs.
+  # Provided as Map
+  #  - key - catalog name
+  #  - value - catalog properties as string
+  # ------------------------------------------------------------------------------
+  catalogs:
+    tpch: |-
+      connector.name=tpch
+      tpch.splits-per-node=4
+    hive: |
+      connector.name=hive-hadoop2
+      hive.metastore=glue
+      #The below properties enable metadata caching
+      hive.metastore-cache-ttl=600s
+      hive.metastore-cache-maximum-size=20000
+      hive.metastore-refresh-interval=4m
+    datalake: |
+      connector.name=delta-lake
+      hive.metastore=glue
+      #The below properties enable metadata caching
+      # hive.metastore-cache-ttl=600s
+      # hive.metastore-cache-maximum-size=20000
+      # hive.metastore-refresh-interval=4m
+
+  # ------------------------------------------------------------------------------
+  # Presto Additional Volumes mount. General purpose.
+  # Provided as array
+  #  - path: <<container mount path>>
+  #    subPath: <<optional key in ConfigMap or Secret>>
+  #    volume: {}
+  #
+  #  Volume definition
+  #  https://kubernetes.io/docs/concepts/storage/volumes/#types-of-volumes
+  #  without name parameter.
+  #
+  # If you specify 'path' only, a directory named 'path' is created. When mounting ConfigMap
+  # or Secret, files are created in this directory for each key.
+  #
+  # If you specify 'subPath', specific key named 'subPath' from ConfigMap or Secret is mounted as
+  # a file with name provided by 'path'.
+  #
+  # E.g. for K8S emptyDir volume
+  # additionalVolumes:
+  #   - path: /mnt/InContainer
+  #     volume:
+  #       emptyDir: {}
+  #
+  # ------------------------------------------------------------------------------
+  additionalVolumes: []
+
+  # ------------------------------------------------------------------------------
+  # Presto Usage Metrics
+  # ------------------------------------------------------------------------------
+  # The Usage Metrics Reporter is only for the Marketplace customers. It's used by
+  # the Billing reporter system. It ignores Usage Client values set up below and
+  # replaces them with defaults (i.e. initialDelay: "1m", interval: "1m").
+  # When "usageMetrics.reporter" is enabled then all values are mandatory.
+  # ------------------------------------------------------------------------------
+
+  usageMetrics:
+    enabled: true
+    usageClient:
+      initialDelay: "1m"
+      interval: "1m"
+    reporter:
+      enabled: false
+      customerID: ""
+      centralServiceURL: "https://metrics-collector.az.starburstdata.net/v1/metricsCollector"
+      basicAuthUser: ""
+      basicAuthPassword: ""
+      image:
+        repository: "harbor.starburstdata.net/testing/usage-metrics-reporter"
+        tag: "0.1.1-alpha"
+        pullPolicy: "IfNotPresent"
+
+  # ------------------------------------------------------------------------------
+  # Prometheus
+  # ------------------------------------------------------------------------------
+
+  prometheus:
+    enabled: true
+    agent:
+      version: "0.13.0"
+      port: 8081
+      config: "/usr/lib/presto/etc/telemetry/prometheus.yaml"
+    rules:
+      - pattern: presto.execution<name=QueryManager><>(running_queries|queued_queries)
+        name: $1
+        attrNameSnakeCase: true
+        type: GAUGE
+      - pattern: 'presto.execution<name=QueryManager><>FailedQueries\.TotalCount'
+        name: 'failed_queries'
+        type: COUNTER
+
+  # ------------------------------------------------------------------------------
+  # Starburst Platform License Secret
+  # Name of a Kubernetes Secret that contains a Starburst Platform license file.
+  # The license file within the secret should be named "starburstdata.license"
+  # ------------------------------------------------------------------------------
+  starburstPlatformLicense: "starburstlicense"
