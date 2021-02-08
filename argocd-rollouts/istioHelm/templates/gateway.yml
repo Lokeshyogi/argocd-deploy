@@ -16,8 +16,9 @@ spec:
     {{- toYaml . | nindent 4 }}
     {{- end }}
     {{- end }}
+  project: production
   source:
-    path: istioHelm
+    path: argocd-rollouts/istioHelm/
     repoURL: https://github.com/Lokeshyogi/argocd-deploy.git
     targetRevision: HEAD
   destination:
